@@ -44,3 +44,6 @@ with st.chat_message("ai"):
         "stWrite a messa for the assistant.",
         accept_file  = True,
     )
+
+# 실행방법
+# uv run streamlit run main.py
