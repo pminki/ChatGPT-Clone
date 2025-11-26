@@ -28,24 +28,37 @@ if "session" not in st.session_state:
 
 session = st.session_state["session"]
 
-def to_generator(delta):
-  text = delta if isinstance(delta, str) else str(delta)
+# memory에 있는 내용 출력
+async def paint_history():
+  messages = await session.get_items()
 
-  for ch in text:
-    yield ch
+  for message in messages:
+    with st.chat_message(message["role"]):
+      if message["role"] == "user":
+        st.write(message["content"])
+      else:
+        if message["type"] == "message":
+          st.write(message["content"][0]["text"])
+
+asyncio.run(paint_history())
+
 
 async def run_agent(message):
-  stream = Runner.run_streamed(
-    agent,
-    message,
-    session=session,
-  )
+  with st.chat_message("ai"):
+    text_placeholder = st.empty()
+    response = ""
+    stream = Runner.run_streamed(
+      agent,
+      message,
+      session=session,
+    )
 
-  async for event in stream.stream_events():
-    if event.type == "raw_response_event":
-      if event.data.type == "response.output_text.delta":
-        with st.chat_message("ai"):
-          st.write_stream(to_generator(event.data.delta))
+    async for event in stream.stream_events():
+      if event.type == "raw_response_event":
+        if event.data.type == "response.output_text.delta":
+          response += event.data.delta
+          text_placeholder.write(response)
+
 
 prompt = st.chat_input("Write a message for your assistant")
 
