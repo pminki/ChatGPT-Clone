@@ -2,6 +2,7 @@ from altair.vegalite.v5.schema.core import Text
 import dotenv
 from openai import OpenAI
 import asyncio
+import base64
 import streamlit as st
 from agents import Agent, Runner, SQLiteSession, WebSearchTool, FileSearchTool
 from streamlit import delta_generator
@@ -10,6 +11,8 @@ dotenv.load_dotenv()
 
 client = OpenAI()
 
+# OpenAI Vector Store ID
+# OpenAI API > Dashboard > Storage > Vector Stores 에서 생성한 Vector Store ID를 입력
 VECTOR_STORE_ID = "vs_68a0815f62388191a9c3701ceb237234"
 
 # agent 설정 (웹페이지가 리로드 되도 1번만 실행되도록 설정)
@@ -52,7 +55,13 @@ async def paint_history():
     if "role" in message:
       with st.chat_message(message["role"]):
         if message["role"] == "user":
-          st.write(message["content"])
+          content = message["content"]
+          if isinstance(content, str):
+            st.write(content)
+          elif isinstance(content, list):
+            for part in content:
+              if "image_url" in part:
+                st.image(part["image_url"])
         else :
           if message["type"] == "message":
             st.write(message["content"][0]["text"].replace("$", "\$"))
@@ -128,7 +137,12 @@ async def run_agent(message):
 prompt = st.chat_input(
   "Write a message for your assistant",
   accept_file = True,
-  file_type=["txt"],
+  file_type=[
+    "txt",
+    "jpg",
+    "png",
+    "jpeg",  
+  ],
 )
 
 
@@ -136,17 +150,41 @@ if prompt:
   for file in prompt.files:
     if file.type.startswith("text/"):
       with st.chat_message("ai"):
-        with st.statsu("Uploading file...") as status:
+        with st.status("Uploading file...") as status:
           uploaded_file = client.files.create(
             file=(file.name, file.getvalue()),
             purpose="user_data",
           )
           status.update(label="⏳ Attaching file...")
-          client.vector_stores.create(
-            vector_store_id = VECTOR_STORE_ID,
+          client.vector_stores.files.create(
+            vector_store_id=VECTOR_STORE_ID,
             file_id=uploaded_file.id,
           )
           status.update(label="✅ File uploaded", state="complete")
+    elif file.type.startswith("image/"):
+      with st.status("⏳ Uploading image...") as status:
+        file_bytes = file.getvalue()
+        base64_data = base64.b64encode(file_bytes).decode("utf-8")
+        data_uri = f"data:{file.type};base64,{base64_data}"
+        asyncio.run(
+          session.add_items(
+            [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_image",
+                    "detail": "auto",
+                    "image_url": data_uri,
+                  }
+                ],
+              }
+            ]
+          )
+        )
+        status.update(label="✅ Image uploaded", state="complete")
+      with st.chat_message("human"):
+        st.image(data_uri)
 
   if prompt.text:
     with st.chat_message("human"):
